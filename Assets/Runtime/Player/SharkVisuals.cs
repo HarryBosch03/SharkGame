@@ -32,14 +32,15 @@ public class SharkVisuals : MonoBehaviour
     public float staminaDeltaSpeed;
     
     [Space]
-    public List<SpriteRenderer> sprites;
+    public List<Renderer> bodyParts;
 
-    private SharkController shark;
+    public SharkController shark { get; private set; }
     private float distance;
     private float staminaLastFrame;
 
     private Transform[] segments;
     private Vector2[] points;
+    private static readonly int TeamColor = Shader.PropertyToID("_Team_Color");
 
     private void Awake()
     {
@@ -47,13 +48,14 @@ public class SharkVisuals : MonoBehaviour
         
         segments = new Transform[segmentCount];
         points = new Vector2[segmentCount];
-        
+
+        segmentInstance.gameObject.SetActive(true);
         segments[0] = segmentInstance.transform;
         for (var i = 1; i < segmentCount; i++)
         {
             var segment = Instantiate(segmentInstance, segmentInstance.transform.parent).transform;
             segments[i] = segment;
-            sprites.AddRange(segment.GetComponentsInChildren<SpriteRenderer>());
+            bodyParts.AddRange(segment.GetComponentsInChildren<Renderer>());
         }
         
         for (var i = 0; i < segmentCount; i++)
@@ -62,7 +64,7 @@ public class SharkVisuals : MonoBehaviour
             var segment = segments[i];
             
             segment.name = $"Segment.{i + 1}";
-            segment.localScale = Vector2.one * Profile(p) * 2f;
+            segment.localScale = Vector3.one * Profile(p) * 2f;
             points[i] = transform.position - transform.right * (p + offset) * length;
         }
 
@@ -81,6 +83,11 @@ public class SharkVisuals : MonoBehaviour
         shark.UnExhaustedEvent -= OnSharkUnExhausted;
     }
 
+    private void OnDestroy()
+    {
+        if (worldOverlay) Destroy(worldOverlay.gameObject);
+    }
+
     private void OnSharkExhausted()
     {
         staminaBackground.color = Utility.HueShift(staminaBackground.color, 0f);
@@ -95,11 +102,12 @@ public class SharkVisuals : MonoBehaviour
 
     public void SetColor(Color color)
     {
-        Color.RGBToHSV(color, out var h, out _, out _);
-        foreach (var sprite in sprites)
+        var propertyBlock = new MaterialPropertyBlock();
+        propertyBlock.SetColor(TeamColor, color);
+        
+        foreach (var part in bodyParts)
         {
-            Color.RGBToHSV(sprite.color, out var _, out var s, out var v);
-            sprite.color = Color.HSVToRGB(h, s, v);
+            part.SetPropertyBlock(propertyBlock);
         }
     }
 
@@ -152,9 +160,10 @@ public class SharkVisuals : MonoBehaviour
         staminaLastFrame = shark.stamina;
     }
 
-    public void BindPart(Transform target, float percent, float verticalOffset, float angleOffset, float splayAngle)
+    public Pose Sample(float p)
     {
-        var di = percent * points.Length;
+        p = Mathf.Clamp01(p);
+        var di = p * points.Length;
         var i1 = Mathf.FloorToInt(di);
         var i2 = i1 + 1;
         if (i2 >= points.Length)
@@ -165,27 +174,16 @@ public class SharkVisuals : MonoBehaviour
 
         var a = points[i1];
         var b = points[i2];
-            
-        target.position = Vector2.Lerp(a, b, Mathf.InverseLerp(i1, i2, di));
-        target.rotation = Quaternion.Euler(0f, 0f, (a - b).ToAngle());
 
-        var right = (points[0] - points[1]).normalized;
+        var right = b - a;
+        var up = transform.up;
+        var fwd = Vector3.Cross(up, right).normalized;
         
-        var angle = (right.ToAngle() + angleOffset) * Mathf.Deg2Rad;
-        target.position += target.rotation * Vector3.up * Mathf.Sin(angle) * verticalOffset;
-        target.position += Vector3.forward * Mathf.Cos(angle) * verticalOffset;
-
-        target.rotation *= Quaternion.Euler(0f, 0f, splayAngle * Mathf.Sin(angle));
-    }
-
-    private void OnDrawGizmos()
-    {
-        Gizmos.color = Color.cyan;
-        for (var i = 0; i < segmentCount; i++)
+        return new Pose
         {
-            var p = i / (segmentCount - 1f);
-            Gizmos.DrawWireSphere(transform.position - transform.right * (p - offset) * length, Profile(p));
-        }
+            position = Vector3.Lerp(a, b, Mathf.InverseLerp(i1, i2, di)),
+            rotation = Quaternion.LookRotation(right, transform.up) * Quaternion.Euler(0f, 90f, 0f) * Quaternion.Euler(shark.transform.eulerAngles.z + 90f, 0f, 0f),
+        };
     }
 
     private void OnValidate()
@@ -193,7 +191,7 @@ public class SharkVisuals : MonoBehaviour
         segmentCount = Mathf.Max(1, segmentCount);
     }
 
-    private float Profile(float p)
+    public float Profile(float p)
     {
         var width = Mathf.Pow(p, 0.8f);
         return (1f - Mathf.Pow(2f * width - 1f, 2f)) * maxRadius;

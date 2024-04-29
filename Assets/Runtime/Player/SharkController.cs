@@ -13,6 +13,13 @@ public class SharkController : MonoBehaviour
     public float moveAcceleration = 8f;
 
     [Space]
+    public float turnSpring = 5f;
+    public float turnDamping = 1f;
+
+    [Space]
+    public float circleSpeed = 10f;
+
+    [Space]
     [Range(0f, 1f)]
     public float stamina = 1f;
     public float fastStaminaDrain = 2f;
@@ -20,14 +27,12 @@ public class SharkController : MonoBehaviour
     public float staminaRegenRate = 0.5f;
 
     [Space]
-    public float turnSpring = 5f;
-    public float turnDamping = 1f;
-
-    [Space]
+    public float safeZone = 1f;
     public float foresightDistance = 2f;
 
     private float staminaRegenTimer;
     private bool exhausted;
+    private bool fast;
 
     private float goalAngle;
     public Vector2 goalPosition { get; private set; }
@@ -52,6 +57,8 @@ public class SharkController : MonoBehaviour
 
     private void FixedUpdate()
     {
+        fast = input.fast && !exhausted;
+        
         CalcGoal();
         Move();
         Turn();
@@ -84,7 +91,7 @@ public class SharkController : MonoBehaviour
 
     private void CalcGoal()
     {
-        if (input.fast)
+        if (fast)
         {
             var dir = goalPosition - body.position;
             goalPosition = dir.normalized * Mathf.Max(4f, dir.magnitude) + body.position;
@@ -93,14 +100,14 @@ public class SharkController : MonoBehaviour
         {
             if (input.moving)
             {
-                goalPosition = (input.goalPosition - body.position).normalized * 4f + body.position;
+                goalPosition = input.goalPosition;
             }
 
             ValidateGoalPosition();
         }
 
         var difference = goalPosition + body.rotation.FromAngle() - body.position;
-        goalAngle = difference.normalized.ToAngle();
+        goalAngle = Mathf.LerpAngle(90f, difference.normalized.ToAngle(), (goalPosition - body.position).magnitude / safeZone);
     }
 
     private void ValidateGoalPosition()
@@ -116,25 +123,36 @@ public class SharkController : MonoBehaviour
     private void Move()
     {
         var moveSpeed = idleMoveSpeed;
-        if (input.fast && !exhausted)
+        if (fast)
         {
             moveSpeed = fastMoveSpeed;
             DrainStamina(fastStaminaDrain);
         }
         else if (input.moving) moveSpeed = slowMoveSpeed;
-
+        
         var force = (forward * moveSpeed - body.velocity) * moveAcceleration;
         body.AddForce(force * body.mass);
     }
 
     private void Turn()
     {
-        var torque = Mathf.DeltaAngle(body.rotation, goalAngle) * turnSpring - body.angularVelocity * turnDamping;
+        if (fast)
+        {
+            body.angularVelocity = 0f;
+            body.rotation = goalAngle;
+            return;
+        }
+        
+        var target = input.moving ? goalAngle : body.rotation;
+        
+        var torque = Mathf.DeltaAngle(body.rotation, target + circleSpeed * Mathf.Sign(body.angularVelocity)) * turnSpring - body.angularVelocity * turnDamping;
         body.AddTorque(torque * body.mass);
     }
 
     private void OnDrawGizmos()
     {
+        if (!Application.isPlaying) return;
+        
         Gizmos.color = Color.yellow;
         Gizmos.DrawLine(transform.position, goalPosition);
         Gizmos.DrawSphere(goalPosition, 0.5f);

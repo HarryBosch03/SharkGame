@@ -1,40 +1,38 @@
-using System;
 using UnityEngine;
 
 public class SharkBinder : MonoBehaviour
 {
     public SharkVisuals shark;
-    [Range(0f, 1f)]
-    public float percent;
-    public float verticalOffset;
-    [Range(-180f, 180f)]
-    public float angleOffset;
-    [Range(-180f, 180f)]
-    public float splayAngle;
+    public Vector3 position;
+    public Vector3 rotation;
 
     private void Awake()
     {
         shark = GetComponentInParent<SharkVisuals>();
+        GetValues();
     }
 
-    private void FixedUpdate()
+    protected virtual void FixedUpdate()
     {
-        shark.BindPart(transform, percent, verticalOffset, angleOffset, splayAngle);
+        var sample = shark.Sample(-position.x / shark.length);
+        transform.position = sample.position + sample.rotation * new Vector3(0f, position.y, position.z);
+        transform.rotation = sample.rotation * Quaternion.Euler(rotation);
+    }
+
+    public void GetValues()
+    {
+        shark = GetComponentInParent<SharkVisuals>();
+        if (shark)
+        {
+            var localPosition = shark.transform.InverseTransformPoint(transform.position);
+            position = localPosition;
+            rotation = (transform.rotation * Quaternion.Inverse(shark.transform.rotation)).eulerAngles;
+        }
     }
 
     public void OnValidate()
     {
         if (Application.isPlaying) return;
-
-        shark = GetComponentInParent<SharkVisuals>();
-        if (shark)
-        {
-            var localPosition = (Vector2)shark.transform.InverseTransformPoint(transform.position);
-            percent = -localPosition.x / shark.length;
-            verticalOffset = localPosition.y;
-            splayAngle = Mathf.DeltaAngle(shark.transform.eulerAngles.z, transform.eulerAngles.z);
-        }
-
-        percent = Mathf.Clamp01(percent);
+        GetValues();
     }
 }
